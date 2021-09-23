@@ -1,0 +1,97 @@
+from itertools import combinations, product
+import numpy as np
+import pandas as pd
+import glob
+
+DATA_DIR = "/home/bahuguna/Work/CMU_project/Data/processed_data/"
+ARTIFICIAL_DATA_DIR = "/home/bahuguna/Work/CMU_project/Data/artificial_data_Krista/"
+DATA_TARGET_DIR =  "/home/bahuguna/Work/CMU_project/Data/processed_data/ideal_observer/"
+FIG_TARGET_DIR =  "/home/bahuguna/Work/CMU_project/Figures/ideal_observer/"
+SIM_DATA_DIR =  "/home/bahuguna/Work/CMU_project/Data/processed_data/ideal_observer/simulated_data/"
+ARTIFICIAL_SIM_DATA_DIR =  "/home/bahuguna/Work/CMU_project/Data/processed_data/ideal_observer/simulated_data_artificial/"
+
+CONFLICTS = ["No","Low","High"]
+CONDITIONS = ["Control","Stim"]
+ANIMALS = ["P3","P4"]
+DAY_LIMIT = -1 
+
+final_df = pd.read_csv(DATA_DIR+"final_df_all.csv")
+
+combs = np.array([ grp[0]  for grp in final_df.groupby(["Day","Animal","Conflict","Condition"])])
+
+artificial_data_features = [  (fn.split('/')[-1].split('_reward')[0],fn.split('/')[-1].split('cond')[1].split('_')[0],fn.split('/')[-1].split('_run')[1].split('.csv')[0])   for fn in glob.glob(ARTIFICIAL_DATA_DIR+"*.csv")]
+
+print(artificial_data_features)
+
+art_rew,art_cond, art_run = np.array(artificial_data_features)[:,0], np.array(artificial_data_features)[:,1], np.array(artificial_data_features)[:,2]
+
+combs_artificial = [ rew+"_reward_"+"cond"+co+"_run"+ru+".csv" for rew,co,ru in zip(art_rew,art_cond,art_run)] 
+
+print(combs_artificial)
+
+rule all:
+	input:
+		expand(DATA_TARGET_DIR+"Day_{day}subject_{sub}_conflict_{conf}_condition{cond}.csv",zip,day=combs[:,0],sub=combs[:,1],conf=combs[:,2],cond=combs[:,3]),
+		expand(SIM_DATA_DIR+"sim_{sub}_conflict_{conf}_condition_{cond}_day_{day}.pkl",zip,day=combs[:,0],sub=combs[:,1],conf=combs[:,2],cond=combs[:,3]),
+		expand(FIG_TARGET_DIR+"Condition_Block_wise_B_diff_{dl}.png",zip,dl=DAY_LIMIT),
+		expand(FIG_TARGET_DIR+"Condition_Block_wise_CPP_{dl}.png",zip,dl=DAY_LIMIT),
+		expand(FIG_TARGET_DIR+"Condition_B_diff_{dl}.png",zip,dl=DAY_LIMIT),
+		expand(FIG_TARGET_DIR+"Condition_CPP_{dl}.png",zip,dl=DAY_LIMIT),
+
+		expand(ARTIFICIAL_SIM_DATA_DIR+"sim_condition_{co}_run_{ru}_reward_{re}.pkl",zip,co=art_cond,ru=art_run,re=art_rew),
+		FIG_TARGET_DIR+"Condition_B_diff_artificial_data.png",
+		FIG_TARGET_DIR+"Condition_CPP_artificial_data.png"
+
+
+
+rule experiment_parameters:
+	output:
+		expand(DATA_TARGET_DIR+"Day_{day}subject_{sub}_conflict_{conf}_condition{cond}.csv",zip,day=combs[:,0],sub=combs[:,1],conf=combs[:,2],cond=combs[:,3]),
+	input:
+		DATA_DIR+"final_df_all.csv"	
+	run:
+		shell("python genTrialStructure_greeblified_decisions.py")	
+
+
+rule fit_ideal_observer_data:
+	output:
+		expand(SIM_DATA_DIR+"sim_{sub}_conflict_{conf}_condition_{cond}_day_{day}.pkl",zip,day=combs[:,0],sub=combs[:,1],conf=combs[:,2],cond=combs[:,3])
+	input:
+		expand(DATA_TARGET_DIR+"Day_{day}subject_{sub}_conflict_{conf}_condition{cond}.csv",zip,day=combs[:,0],sub=combs[:,1],conf=combs[:,2],cond=combs[:,3]),		
+	run:
+		shell("python binary_ddm_rl_simulation_p.py actual")
+
+
+rule plot_CP_aligned_B_CPP_data:
+	output:
+		expand(FIG_TARGET_DIR+"Condition_Block_wise_B_diff_{dl}.png",zip,dl=DAY_LIMIT),
+		expand(FIG_TARGET_DIR+"Condition_Block_wise_CPP_{dl}.png",zip,dl=DAY_LIMIT),
+		expand(FIG_TARGET_DIR+"Condition_B_diff_{dl}.png",zip,dl=DAY_LIMIT),
+		expand(FIG_TARGET_DIR+"Condition_CPP_{dl}.png",zip,dl=DAY_LIMIT)
+	input:
+		expand(SIM_DATA_DIR+"sim_{sub}_conflict_{conf}_condition_{cond}_day_{day}.pkl",zip,day=combs[:,0],sub=combs[:,1],conf=combs[:,2],cond=combs[:,3])
+	run:
+		shell("python Plot_B_CPP.py {dl} actual".format(dl=DAY_LIMIT))
+ 	
+
+rule fit_ideal_observer_artificial_data:
+	input:
+		expand(ARTIFICIAL_DATA_DIR+"{fn}",zip,fn=combs_artificial)
+	output:
+		expand(ARTIFICIAL_SIM_DATA_DIR+"sim_condition_{co}_run_{ru}_reward_{re}.pkl",zip,co=art_cond,ru=art_run,re=art_rew)
+	run:
+		shell("python binary_ddm_rl_simulation_p.py artificial")
+
+
+rule plot_CP_aligned_B_CPP_artificial_data:
+	output:
+		FIG_TARGET_DIR+"Condition_B_diff_artificial_data.png",
+		FIG_TARGET_DIR+"Condition_CPP_artificial_data.png"
+	input:
+		expand(ARTIFICIAL_SIM_DATA_DIR+"sim_condition_{co}_run_{ru}_reward_{re}.pkl",zip,co=art_cond,ru=art_run,re=art_rew)
+	run:
+		shell("python Plot_B_CPP.py 1 artificial")
+
+
+
+	
